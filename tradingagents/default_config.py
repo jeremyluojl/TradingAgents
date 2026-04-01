@@ -16,6 +16,9 @@ DEFAULT_CONFIG = {
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     "anthropic_effort": None,           # "high", "medium", "low"
+    # Amazon Bedrock configuration
+    "bedrock_region": os.getenv("BEDROCK_REGION"),  # None → boto3 auto-detects (uses EC2 instance region on EC2)
+    "bedrock_credentials_profile": os.getenv("AWS_PROFILE") or os.getenv("BEDROCK_CREDENTIALS_PROFILE"),
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
     "output_language": "English",

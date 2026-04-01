@@ -4,6 +4,7 @@ from .base_client import BaseLLMClient
 from .openai_client import OpenAIClient
 from .anthropic_client import AnthropicClient
 from .google_client import GoogleClient
+from .bedrock_client import BedrockClient
 
 
 def create_llm_client(
@@ -15,7 +16,7 @@ def create_llm_client(
     """Create an LLM client for the specified provider.
 
     Args:
-        provider: LLM provider (openai, anthropic, google, xai, ollama, openrouter)
+        provider: LLM provider (openai, anthropic, google, xai, ollama, openrouter, bedrock)
         model: Model name/identifier
         base_url: Optional base URL for API endpoint
         **kwargs: Additional provider-specific arguments
@@ -25,6 +26,8 @@ def create_llm_client(
             - max_retries: Maximum retry attempts
             - api_key: API key for the provider
             - callbacks: LangChain callbacks
+            - region_name: AWS region for Bedrock (e.g. "us-east-1")
+            - credentials_profile_name: AWS credentials profile for Bedrock
 
     Returns:
         Configured BaseLLMClient instance
@@ -45,5 +48,8 @@ def create_llm_client(
 
     if provider_lower == "google":
         return GoogleClient(model, base_url, **kwargs)
+
+    if provider_lower == "bedrock":
+        return BedrockClient(model, base_url, **kwargs)
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

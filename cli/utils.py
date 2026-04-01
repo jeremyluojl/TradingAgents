@@ -197,6 +197,7 @@ def select_llm_provider() -> tuple[str, str]:
         ("xAI", "https://api.x.ai/v1"),
         ("Openrouter", "https://openrouter.ai/api/v1"),
         ("Ollama", "http://localhost:11434/v1"),
+        ("Bedrock", ""),
     ]
     
     choice = questionary.select(
@@ -281,6 +282,37 @@ def ask_gemini_thinking_config() -> str | None:
             ("pointer", "fg:green noinherit"),
         ]),
     ).ask()
+
+
+def ask_bedrock_region() -> str:
+    """Ask for the AWS region to use for Bedrock API calls."""
+    regions = [
+        ("US East (N. Virginia) - us-east-1 [recommended]", "us-east-1"),
+        ("US West (Oregon) - us-west-2", "us-west-2"),
+        ("Europe (Frankfurt) - eu-central-1", "eu-central-1"),
+        ("Europe (Ireland) - eu-west-1", "eu-west-1"),
+        ("Asia Pacific (Tokyo) - ap-northeast-1", "ap-northeast-1"),
+        ("Asia Pacific (Singapore) - ap-southeast-1", "ap-southeast-1"),
+        ("Asia Pacific (Sydney) - ap-southeast-2", "ap-southeast-2"),
+    ]
+    choice = questionary.select(
+        "Select AWS Region for Bedrock:",
+        choices=[
+            questionary.Choice(display, value=value) for display, value in regions
+        ],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+    if choice is None:
+        console.print("\n[red]No AWS region selected. Exiting...[/red]")
+        exit(1)
+
+    return choice
 
 
 def ask_output_language() -> str:

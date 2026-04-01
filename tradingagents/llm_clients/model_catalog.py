@@ -85,6 +85,25 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Qwen3:latest (8B, local)", "qwen3:latest"),
         ],
     },
+    "bedrock": {
+        "quick": [
+            ("Claude Sonnet 4.6 - Global inference, all regions (recommended)", "global.anthropic.claude-sonnet-4-6"),
+            ("Claude Sonnet 4.6 - US cross-region inference", "us.anthropic.claude-sonnet-4-6"),
+            ("Claude Haiku 4.5 - Global inference, fast & low-cost", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
+            ("Claude Haiku 4.5 - US cross-region inference", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+            ("Llama 4 Maverick 17B - US cross-region, open source", "us.meta.llama4-maverick-17b-instruct-v1:0"),
+            ("Amazon Nova Lite - Low-cost multimodal", "amazon.nova-lite-v1:0"),
+        ],
+        "deep": [
+            ("Claude Opus 4.6 - Global inference, most capable (recommended)", "global.anthropic.claude-opus-4-6-v1"),
+            ("Claude Opus 4.6 - US cross-region inference", "us.anthropic.claude-opus-4-6-v1"),
+            ("Claude Sonnet 4.6 - Global inference, all regions", "global.anthropic.claude-sonnet-4-6"),
+            ("Claude Sonnet 4.6 - US cross-region inference", "us.anthropic.claude-sonnet-4-6"),
+            ("Claude Opus 4.5 - Global inference", "global.anthropic.claude-opus-4-5-20251101-v1:0"),
+            ("Claude Sonnet 4.5 - Global inference, balanced", "global.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+            ("Amazon Nova Pro - Highly capable multimodal", "amazon.nova-pro-v1:0"),
+        ],
+    },
 }
 
 
