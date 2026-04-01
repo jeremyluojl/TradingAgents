@@ -28,6 +28,7 @@
 # TradingAgents: Multi-Agents LLM Financial Trading Framework
 
 ## News
+- [2026-04] **Amazon Bedrock support** added — run TradingAgents with Claude 4.6/4.5 via Bedrock global and US cross-region inference profiles, on-premise EC2, or any AWS environment using IAM roles.
 - [2026-03] **TradingAgents v0.2.3** released with multi-language support, GPT-5.4 family models, unified model catalog, backtesting date fidelity, and proxy support.
 - [2026-03] **TradingAgents v0.2.2** released with GPT-5.4/Gemini 3.1/Claude 4.6 model coverage, five-tier rating scale, OpenAI Responses API, Anthropic effort control, and cross-platform stability.
 - [2026-02] **TradingAgents v0.2.0** released with multi-provider LLM support (GPT-5.x, Gemini 3.x, Claude 4.x, Grok 4.x) and improved system architecture.
@@ -133,6 +134,15 @@ export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 
 For local models, configure Ollama with `llm_provider: "ollama"` in your config.
 
+**Amazon Bedrock** uses AWS credentials instead of an API key — no `BEDROCK_API_KEY` is needed. Authentication follows the standard AWS credential chain:
+- **Local**: set `AWS_PROFILE` to a named profile in `~/.aws/credentials`
+- **EC2**: attach an IAM role to the instance — credentials are picked up automatically
+
+```bash
+export AWS_PROFILE=my-profile      # Local: named profile (omit on EC2)
+export BEDROCK_REGION=us-east-1    # Region to call Bedrock from (omit to auto-detect on EC2)
+```
+
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
 cp .env.example .env
@@ -165,7 +175,7 @@ An interface will appear showing results as they load, letting you track the age
 
 ### Implementation Details
 
-We built TradingAgents with LangGraph to ensure flexibility and modularity. The framework supports multiple LLM providers: OpenAI, Google, Anthropic, xAI, OpenRouter, and Ollama.
+We built TradingAgents with LangGraph to ensure flexibility and modularity. The framework supports multiple LLM providers: OpenAI, Google, Anthropic, xAI, OpenRouter, Ollama, and Amazon Bedrock.
 
 ### Python Usage
 
@@ -189,7 +199,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"        # openai, google, anthropic, xai, openrouter, ollama
+config["llm_provider"] = "openai"        # openai, google, anthropic, xai, openrouter, ollama, bedrock
 config["deep_think_llm"] = "gpt-5.4"     # Model for complex reasoning
 config["quick_think_llm"] = "gpt-5.4-mini" # Model for quick tasks
 config["max_debate_rounds"] = 2
@@ -198,6 +208,36 @@ ta = TradingAgentsGraph(debug=True, config=config)
 _, decision = ta.propagate("NVDA", "2026-01-15")
 print(decision)
 ```
+
+#### Amazon Bedrock
+
+Use Claude 4.6/4.5 via Bedrock cross-region inference profiles. Install the extra dependency first:
+
+```bash
+pip install langchain-aws
+```
+
+```python
+from dotenv import load_dotenv
+load_dotenv()  # loads AWS_PROFILE and BEDROCK_REGION from .env
+
+from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.default_config import DEFAULT_CONFIG
+
+config = DEFAULT_CONFIG.copy()
+config["llm_provider"] = "bedrock"
+config["deep_think_llm"] = "global.anthropic.claude-opus-4-6-v1"      # Global CRIS — routes worldwide
+config["quick_think_llm"] = "global.anthropic.claude-sonnet-4-6"      # Global CRIS — routes worldwide
+# Optional overrides (read from env vars by default):
+# config["bedrock_region"] = "us-east-1"          # omit to auto-detect on EC2
+# config["bedrock_credentials_profile"] = "myprofile"  # omit to use IAM role on EC2
+
+ta = TradingAgentsGraph(debug=True, config=config)
+_, decision = ta.propagate("NVDA", "2026-01-15")
+print(decision)
+```
+
+US cross-region profiles (`us.anthropic.claude-*`) are also available and require only standard `bedrock:InvokeModel` IAM permissions. Global profiles (`global.anthropic.claude-*`) offer wider routing and higher throughput but require a [three-part IAM policy](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html).
 
 See `tradingagents/default_config.py` for all configuration options.
 
