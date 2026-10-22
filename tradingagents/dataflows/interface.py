@@ -1,4 +1,7 @@
+import logging
 from typing import Annotated
+
+import requests
 
 # Import from vendor-specific modules
 from .y_finance import (
@@ -11,6 +14,8 @@ from .y_finance import (
     get_insider_transactions as get_yfinance_insider_transactions,
 )
 from .yfinance_news import get_news_yfinance, get_global_news_yfinance
+from .eastmoney_news import get_news_eastmoney
+from .google_news import get_news_google, get_global_news_google
 from .alpha_vantage import (
     get_stock as get_alpha_vantage_stock,
     get_indicator as get_alpha_vantage_indicator,
@@ -22,10 +27,12 @@ from .alpha_vantage import (
     get_news as get_alpha_vantage_news,
     get_global_news as get_alpha_vantage_global_news,
 )
-from .alpha_vantage_common import AlphaVantageRateLimitError
+from .vendor_errors import VendorError
 
 # Configuration and routing logic
 from .config import get_config
+
+logger = logging.getLogger(__name__)
 
 # Tools organized by category
 TOOLS_CATEGORIES = {
@@ -63,9 +70,13 @@ TOOLS_CATEGORIES = {
 VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
+    "eastmoney",
+    "google_news",
 ]
 
-# Mapping of methods to their vendor-specific implementations
+# Mapping of methods to their vendor-specific implementations.
+# Dict order is also the order in which vendors not named in the config are
+# appended to the fallback chain.
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
@@ -96,11 +107,14 @@ VENDOR_METHODS = {
     },
     # news_data
     "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
+        "eastmoney": get_news_eastmoney,      # A-share / HK only
+        "google_news": get_news_google,
+        "alpha_vantage": get_alpha_vantage_news,
     },
     "get_global_news": {
         "yfinance": get_global_news_yfinance,
+        "google_news": get_global_news_google,
         "alpha_vantage": get_alpha_vantage_global_news,
     },
     "get_insider_transactions": {
@@ -131,6 +145,23 @@ def get_vendor(category: str, method: str = None) -> str:
     # Fall back to category-level configuration
     return config.get("data_vendors", {}).get(category, "default")
 
+# Methods where "every vendor came up empty" is an expected outcome. They return
+# a readable note to the agent instead of raising, because an exception inside a
+# tool call aborts the whole graph run.
+SOFT_FAIL_METHODS = {"get_news", "get_global_news"}
+
+# For news methods, a vendor result with fewer articles than this is kept but
+# the router also queries the next vendor and returns the combined text.
+MIN_NEWS_ARTICLES = 5
+
+# Errors that move the router on to the next vendor. VendorError covers empty
+# results, unsupported inputs, missing API keys and Alpha Vantage rate limits.
+FALLBACK_ERRORS = (VendorError, requests.RequestException)
+
+def _short(exc: Exception, max_len: int = 200) -> str:
+    text = str(exc) or type(exc).__name__
+    return text if len(text) <= max_len else text[:max_len] + "…"
+
 def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
     category = get_category_for_method(method)
@@ -147,6 +178,8 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
 
+    attempts = []
+    partial_results = []  # sparse news results, merged with whatever comes next
     for vendor in fallback_vendors:
         if vendor not in VENDOR_METHODS[method]:
             continue
@@ -155,8 +188,28 @@ def route_to_vendor(method: str, *args, **kwargs):
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
-        except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+            result = impl_func(*args, **kwargs)
+        except FALLBACK_ERRORS as exc:
+            attempts.append(f"{vendor}: {_short(exc)}")
+            logger.info("Vendor '%s' could not serve %s, trying next: %s", vendor, method, exc)
+            continue
 
-    raise RuntimeError(f"No available vendor for '{method}'")
+        if method not in SOFT_FAIL_METHODS:
+            return result
+
+        count = getattr(result, "article_count", None)
+        if count is not None and count < MIN_NEWS_ARTICLES:
+            partial_results.append(str(result))
+            attempts.append(f"{vendor}: only {count} article(s)")
+            logger.info("Vendor '%s' returned only %d article(s) for %s, also trying next", vendor, count, method)
+            continue
+        return "\n\n".join(partial_results + [str(result)])
+
+    if partial_results:
+        return "\n\n".join(partial_results)
+
+    summary = "; ".join(attempts) or "no vendor implementation configured"
+    if method in SOFT_FAIL_METHODS:
+        arg_text = ", ".join(str(a) for a in args)
+        return f"No data found for {method}({arg_text}) from any data vendor. Attempts: {summary}"
+    raise RuntimeError(f"No available vendor for '{method}': {summary}")

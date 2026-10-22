@@ -1,51 +1,97 @@
 """yfinance-based news data fetching functions."""
 
+from datetime import datetime, timezone
+from typing import Iterator
+
 import yfinance as yf
-from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
+from .news_utils import (
+    filter_articles,
+    format_articles,
+    get_company_name,
+    looks_like_ticker,
+    make_article,
+    parse_date_range,
+    prepare_articles,
+    short_error,
+)
 from .stockstats_utils import yf_retry
+from .vendor_errors import VendorNoDataError, VendorUnavailableError
+
+TICKER_NEWS_COUNT = 20
+
+GLOBAL_NEWS_QUERIES = [
+    "stock market economy",
+    "Federal Reserve interest rates",
+    "inflation economic outlook",
+    "global markets trading",
+]
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _extract_article_data(article: dict) -> dict:
-    """Extract article data from yfinance news format (handles nested 'content' structure)."""
-    # Handle nested content structure
+    """Normalize a yfinance article.
+
+    ``Ticker.get_news`` returns a nested ``content`` structure; ``yf.Search``
+    returns a flat structure with ``providerPublishTime`` (epoch seconds, UTC).
+    """
     if "content" in article:
         content = article["content"]
-        title = content.get("title", "No title")
-        summary = content.get("summary", "")
-        provider = content.get("provider", {})
-        publisher = provider.get("displayName", "Unknown")
-
-        # Get URL from canonicalUrl or clickThroughUrl
+        provider = content.get("provider") or {}
         url_obj = content.get("canonicalUrl") or content.get("clickThroughUrl") or {}
-        link = url_obj.get("url", "")
 
-        # Get publish date
-        pub_date_str = content.get("pubDate", "")
         pub_date = None
+        pub_date_str = content.get("pubDate", "")
         if pub_date_str:
             try:
-                pub_date = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00"))
+                pub_date = _to_naive_utc(datetime.fromisoformat(pub_date_str.replace("Z", "+00:00")))
             except (ValueError, AttributeError):
                 pass
 
-        return {
-            "title": title,
-            "summary": summary,
-            "publisher": publisher,
-            "link": link,
-            "pub_date": pub_date,
-        }
-    else:
-        # Fallback for flat structure
-        return {
-            "title": article.get("title", "No title"),
-            "summary": article.get("summary", ""),
-            "publisher": article.get("publisher", "Unknown"),
-            "link": article.get("link", ""),
-            "pub_date": None,
-        }
+        return make_article(
+            title=content.get("title", ""),
+            summary=content.get("summary", ""),
+            publisher=provider.get("displayName", ""),
+            link=url_obj.get("url", ""),
+            pub_date=pub_date,
+        )
+
+    pub_date = None
+    timestamp = article.get("providerPublishTime")
+    if isinstance(timestamp, (int, float)) and timestamp > 0:
+        pub_date = datetime.fromtimestamp(timestamp, timezone.utc).replace(tzinfo=None)
+
+    return make_article(
+        title=article.get("title", ""),
+        summary=article.get("summary", ""),
+        publisher=article.get("publisher", ""),
+        link=article.get("link", ""),
+        pub_date=pub_date,
+    )
+
+
+def _is_related(article: dict, ticker: str) -> bool:
+    """Search hits carry ``relatedTickers``; keep those tagged with our ticker (or untagged)."""
+    related = article.get("relatedTickers")
+    if not related:
+        return True
+    return ticker.strip().upper() in {str(sym).upper() for sym in related}
+
+
+def _search_queries(ticker: str) -> Iterator[str]:
+    """Search by ticker first (works for US listings), then by company name
+    (needed for HK/other listings, e.g. ``1810.HK`` -> ``Xiaomi``)."""
+    yield ticker
+    if looks_like_ticker(ticker):
+        name = get_company_name(ticker)
+        if name and name.lower() != ticker.lower():
+            yield name
 
 
 def get_news_yfinance(
@@ -56,6 +102,10 @@ def get_news_yfinance(
     """
     Retrieve news for a specific stock ticker using yfinance.
 
+    Tries ``Ticker.get_news`` first, then falls back to Yahoo's search endpoint
+    (by ticker, then by company name). Yahoo only serves recent articles, so
+    historical windows usually come back empty and the router moves on.
+
     Args:
         ticker: Stock ticker symbol (e.g., "AAPL")
         start_date: Start date in yyyy-mm-dd format
@@ -63,45 +113,48 @@ def get_news_yfinance(
 
     Returns:
         Formatted string containing news articles
+
+    Raises:
+        VendorNoDataError / VendorUnavailableError so the router can fall back.
     """
+    start_dt, end_exclusive = parse_date_range(start_date, end_date)
+    collected: list[dict] = []
+    errors: list[str] = []
+
     try:
-        stock = yf.Ticker(ticker)
-        news = yf_retry(lambda: stock.get_news(count=20))
+        feed = yf_retry(lambda: yf.Ticker(ticker).get_news(count=TICKER_NEWS_COUNT)) or []
+        collected.extend(_extract_article_data(a) for a in feed)
+    except Exception as exc:  # yfinance surfaces many network/parse error types
+        errors.append(f"Ticker.get_news: {short_error(exc)}")
 
-        if not news:
-            return f"No news found for {ticker}"
+    if not filter_articles(collected, start_dt, end_exclusive):
+        check_related = looks_like_ticker(ticker)
+        for query in _search_queries(ticker):
+            try:
+                search = yf_retry(lambda q=query: yf.Search(
+                    query=q,
+                    news_count=TICKER_NEWS_COUNT,
+                    enable_fuzzy_query=False,
+                ))
+                hits = search.news or []
+            except Exception as exc:
+                errors.append(f"Search({query!r}): {short_error(exc)}")
+                continue
+            collected.extend(
+                _extract_article_data(a) for a in hits
+                if not check_related or _is_related(a, ticker)
+            )
+            if filter_articles(collected, start_dt, end_exclusive):
+                break
 
-        # Parse date range for filtering
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-
-        news_str = ""
-        filtered_count = 0
-
-        for article in news:
-            data = _extract_article_data(article)
-
-            # Filter by date if publish time is available
-            if data["pub_date"]:
-                pub_date_naive = data["pub_date"].replace(tzinfo=None)
-                if not (start_dt <= pub_date_naive <= end_dt + relativedelta(days=1)):
-                    continue
-
-            news_str += f"### {data['title']} (source: {data['publisher']})\n"
-            if data["summary"]:
-                news_str += f"{data['summary']}\n"
-            if data["link"]:
-                news_str += f"Link: {data['link']}\n"
-            news_str += "\n"
-            filtered_count += 1
-
-        if filtered_count == 0:
-            return f"No news found for {ticker} between {start_date} and {end_date}"
-
-        return f"## {ticker} News, from {start_date} to {end_date}:\n\n{news_str}"
-
-    except Exception as e:
-        return f"Error fetching news for {ticker}: {str(e)}"
+    articles = prepare_articles(collected, start_dt, end_exclusive, TICKER_NEWS_COUNT)
+    if articles:
+        return format_articles(
+            f"{ticker} News, from {start_date} to {end_date} (source: Yahoo Finance)", articles
+        )
+    if errors and not collected:
+        raise VendorUnavailableError("; ".join(errors))
+    raise VendorNoDataError(f"no Yahoo Finance articles for {ticker} between {start_date} and {end_date}")
 
 
 def get_global_news_yfinance(
@@ -112,6 +165,9 @@ def get_global_news_yfinance(
     """
     Retrieve global/macro economic news using yfinance Search.
 
+    Yahoo search only returns recent articles; for historical dates nothing
+    falls inside the window and the router moves on to the next vendor.
+
     Args:
         curr_date: Current date in yyyy-mm-dd format
         look_back_days: Number of days to look back
@@ -120,78 +176,33 @@ def get_global_news_yfinance(
     Returns:
         Formatted string containing global news articles
     """
-    # Search queries for macro/global news
-    search_queries = [
-        "stock market economy",
-        "Federal Reserve interest rates",
-        "inflation economic outlook",
-        "global markets trading",
-    ]
+    curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+    start_dt = curr_dt - relativedelta(days=look_back_days)
+    end_exclusive = curr_dt + relativedelta(days=1)
+    start_date = start_dt.strftime("%Y-%m-%d")
 
-    all_news = []
-    seen_titles = set()
-
-    try:
-        for query in search_queries:
+    collected: list[dict] = []
+    errors: list[str] = []
+    for query in GLOBAL_NEWS_QUERIES:
+        try:
             search = yf_retry(lambda q=query: yf.Search(
                 query=q,
                 news_count=limit,
                 enable_fuzzy_query=True,
             ))
+            hits = search.news or []
+        except Exception as exc:
+            errors.append(f"Search({query!r}): {short_error(exc)}")
+            continue
+        collected.extend(_extract_article_data(a) for a in hits)
+        if len(prepare_articles(collected, start_dt, end_exclusive, limit)) >= limit:
+            break
 
-            if search.news:
-                for article in search.news:
-                    # Handle both flat and nested structures
-                    if "content" in article:
-                        data = _extract_article_data(article)
-                        title = data["title"]
-                    else:
-                        title = article.get("title", "")
-
-                    # Deduplicate by title
-                    if title and title not in seen_titles:
-                        seen_titles.add(title)
-                        all_news.append(article)
-
-            if len(all_news) >= limit:
-                break
-
-        if not all_news:
-            return f"No global news found for {curr_date}"
-
-        # Calculate date range
-        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
-        start_dt = curr_dt - relativedelta(days=look_back_days)
-        start_date = start_dt.strftime("%Y-%m-%d")
-
-        news_str = ""
-        for article in all_news[:limit]:
-            # Handle both flat and nested structures
-            if "content" in article:
-                data = _extract_article_data(article)
-                # Skip articles published after curr_date (look-ahead guard)
-                if data.get("pub_date"):
-                    pub_naive = data["pub_date"].replace(tzinfo=None) if hasattr(data["pub_date"], "replace") else data["pub_date"]
-                    if pub_naive > curr_dt + relativedelta(days=1):
-                        continue
-                title = data["title"]
-                publisher = data["publisher"]
-                link = data["link"]
-                summary = data["summary"]
-            else:
-                title = article.get("title", "No title")
-                publisher = article.get("publisher", "Unknown")
-                link = article.get("link", "")
-                summary = ""
-
-            news_str += f"### {title} (source: {publisher})\n"
-            if summary:
-                news_str += f"{summary}\n"
-            if link:
-                news_str += f"Link: {link}\n"
-            news_str += "\n"
-
-        return f"## Global Market News, from {start_date} to {curr_date}:\n\n{news_str}"
-
-    except Exception as e:
-        return f"Error fetching global news: {str(e)}"
+    articles = prepare_articles(collected, start_dt, end_exclusive, limit)
+    if articles:
+        return format_articles(
+            f"Global Market News, from {start_date} to {curr_date} (source: Yahoo Finance)", articles
+        )
+    if errors and not collected:
+        raise VendorUnavailableError("; ".join(errors))
+    raise VendorNoDataError(f"no Yahoo Finance global news between {start_date} and {curr_date}")

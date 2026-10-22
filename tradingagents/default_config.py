@@ -27,15 +27,22 @@ DEFAULT_CONFIG = {
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
     # Data vendor configuration
-    # Category-level configuration (default for all tools in category)
+    # Category-level configuration (default for all tools in category).
+    # A comma-separated list is a fallback chain: when a vendor errors out or
+    # returns nothing, the next one is tried; vendors not listed are appended
+    # at the end automatically.
     "data_vendors": {
         "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        # Options: eastmoney (A-share/HK only, Chinese), yfinance, google_news, alpha_vantage (needs ALPHA_VANTAGE_API_KEY)
+        "news_data": "eastmoney,yfinance,google_news",
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
+        # Google News supports date-bounded search (no look-ahead in backtests)
+        # and covers both US and China/HK macro news.
+        "get_global_news": "google_news,yfinance",
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
     },
 }

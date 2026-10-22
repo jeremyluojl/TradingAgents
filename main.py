@@ -18,7 +18,7 @@ config["data_vendors"] = {
     "core_stock_apis": "yfinance",           # Options: alpha_vantage, yfinance
     "technical_indicators": "yfinance",      # Options: alpha_vantage, yfinance
     "fundamental_data": "yfinance",          # Options: alpha_vantage, yfinance
-    "news_data": "yfinance",                 # Options: alpha_vantage, yfinance
+    "news_data": "eastmoney,yfinance,google_news",  # Options: eastmoney (A-share/HK), yfinance, google_news, alpha_vantage
 }
 
 # Initialize with custom config

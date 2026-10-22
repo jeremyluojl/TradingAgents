@@ -1,4 +1,27 @@
+import json
+
 from .alpha_vantage_common import _make_api_request, format_datetime_for_api
+from .vendor_errors import VendorNoDataError
+
+
+def _news_sentiment_request(params: dict) -> str:
+    """Call NEWS_SENTIMENT and raise VendorNoDataError when the feed is empty,
+    so the router falls back (e.g. unsupported HK/A-share tickers)."""
+    response_text = _make_api_request("NEWS_SENTIMENT", params)
+    try:
+        payload = json.loads(response_text)
+    except json.JSONDecodeError:
+        return response_text
+    if isinstance(payload, dict) and not payload.get("feed"):
+        reason = (
+            payload.get("Information")
+            or payload.get("Error Message")
+            or payload.get("Note")
+            or "empty feed"
+        )
+        raise VendorNoDataError(f"Alpha Vantage returned no news: {reason}")
+    return response_text
+
 
 def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
     """Returns live and historical market news & sentiment data from premier news outlets worldwide.
@@ -20,7 +43,7 @@ def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
         "time_to": format_datetime_for_api(end_date),
     }
 
-    return _make_api_request("NEWS_SENTIMENT", params)
+    return _news_sentiment_request(params)
 
 def get_global_news(curr_date, look_back_days: int = 7, limit: int = 50) -> dict[str, str] | str:
     """Returns global market news & sentiment data without ticker-specific filtering.
@@ -49,7 +72,7 @@ def get_global_news(curr_date, look_back_days: int = 7, limit: int = 50) -> dict
         "limit": str(limit),
     }
 
-    return _make_api_request("NEWS_SENTIMENT", params)
+    return _news_sentiment_request(params)
 
 
 def get_insider_transactions(symbol: str) -> dict[str, str] | str:
