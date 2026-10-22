@@ -1,0 +1,75 @@
+digraph TradingAgentsWorkflow {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="PingFang SC";
+    node [fontname="PingFang SC", shape=box, style="rounded,filled", fontsize=11];
+    edge [fontname="PingFang SC", fontsize=9];
+    labelloc="t";
+    fontsize=20;
+    label="TradingAgents 智能体工作流 (LangGraph)";
+
+    START [label="START", shape=circle, fillcolor="#34A853", fontcolor="white", style="filled"];
+    ENDN [label="END\n→ final_trade_decision\n→ BUY / SELL / HOLD", shape="doubleoctagon", fillcolor="#EA4335", fontcolor="white", style="filled"];
+
+    subgraph cluster_p1 {
+        label="① 分析师阶段 (顺序执行, 每个可循环调用工具)";
+        style="rounded,filled"; color="#E6F4EA"; fontsize=13;
+        MA [label="Market Analyst", fillcolor="#A8DAB5"];
+        TMA [label="tools_market\n行情/技术指标", fillcolor="#FDE293", shape=box];
+        CMA [label="Msg Clear", fillcolor="#E8EAED", fontsize=9];
+        SA [label="Social Analyst", fillcolor="#A8DAB5"];
+        TSA [label="tools_social\n舆情/新闻", fillcolor="#FDE293"];
+        CSA [label="Msg Clear", fillcolor="#E8EAED", fontsize=9];
+        NA [label="News Analyst", fillcolor="#A8DAB5"];
+        TNA [label="tools_news\n新闻/内部交易", fillcolor="#FDE293"];
+        CNA [label="Msg Clear", fillcolor="#E8EAED", fontsize=9];
+        FA [label="Fundamentals Analyst", fillcolor="#A8DAB5"];
+        TFA [label="tools_fundamentals\n财报三张表", fillcolor="#FDE293"];
+        CFA [label="Msg Clear", fillcolor="#E8EAED", fontsize=9];
+    }
+
+    subgraph cluster_p2 {
+        label="② 研究员多空辩论 (max_debate_rounds 轮)";
+        style="rounded,filled"; color="#E8F0FE"; fontsize=13;
+        BULL [label="Bull Researcher\n(看多)", fillcolor="#AECBFA"];
+        BEAR [label="Bear Researcher\n(看空)", fillcolor="#AECBFA"];
+    }
+    RM [label="Research Manager\n裁决 → investment_plan", fillcolor="#8AB4F8"];
+    TRADER [label="Trader\n生成交易计划", fillcolor="#FBBC04"];
+
+    subgraph cluster_p3 {
+        label="③ 风险三方辩论 (max_risk_discuss_rounds 轮)";
+        style="rounded,filled"; color="#FCE8E6"; fontsize=13;
+        AGG [label="Aggressive\n(激进)", fillcolor="#F6AEA9"];
+        CONS [label="Conservative\n(保守)", fillcolor="#F6AEA9"];
+        NEU [label="Neutral\n(中性)", fillcolor="#F6AEA9"];
+    }
+    PM [label="Portfolio Manager\n最终裁决", fillcolor="#EA4335", fontcolor="white"];
+
+    START -> MA;
+    MA -> TMA [label="tool_calls", style=dashed, color="#F9AB00"];
+    TMA -> MA [style=dashed, color="#F9AB00"];
+    MA -> CMA -> SA;
+    SA -> TSA [style=dashed, color="#F9AB00"]; TSA -> SA [style=dashed, color="#F9AB00"];
+    SA -> CSA -> NA;
+    NA -> TNA [style=dashed, color="#F9AB00"]; TNA -> NA [style=dashed, color="#F9AB00"];
+    NA -> CNA -> FA;
+    FA -> TFA [style=dashed, color="#F9AB00"]; TFA -> FA [style=dashed, color="#F9AB00"];
+    FA -> CFA;
+
+    CFA -> BULL [color="#1A73E8", penwidth=2];
+    BULL -> BEAR [label="继续辩论", color="#1A73E8"];
+    BEAR -> BULL [label="继续辩论", color="#1A73E8"];
+    BULL -> RM [label="轮数达上限", style=dashed];
+    BEAR -> RM [label="轮数达上限", style=dashed];
+    RM -> TRADER [color="#1A73E8", penwidth=2];
+    TRADER -> AGG [color="#1A73E8", penwidth=2];
+
+    AGG -> CONS [label="继续", color="#1A73E8"];
+    CONS -> NEU [label="继续", color="#1A73E8"];
+    NEU -> AGG [label="继续", color="#1A73E8"];
+    AGG -> PM [label="轮数达上限", style=dashed];
+    CONS -> PM [label="轮数达上限", style=dashed];
+    NEU -> PM [label="轮数达上限", style=dashed];
+    PM -> ENDN [color="#1A73E8", penwidth=2];
+}

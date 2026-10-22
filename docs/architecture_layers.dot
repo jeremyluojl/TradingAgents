@@ -1,0 +1,100 @@
+digraph TradingAgentsArch {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="PingFang SC";
+    node [fontname="PingFang SC", shape=box, style="rounded,filled", fontsize=11];
+    edge [fontname="PingFang SC", fontsize=9, color="#555555"];
+    labelloc="t";
+    fontsize=20;
+    label="TradingAgents 分层架构";
+
+    subgraph cluster_entry {
+        label="入口层 Entry Points";
+        style="rounded,filled"; color="#E8F0FE"; fontsize=13;
+        CLI [label="cli/main.py\n(Typer CLI)\n--ticker/--provider/--depth", fillcolor="#AECBFA"];
+        MAIN [label="main.py\n(编程式调用)", fillcolor="#AECBFA"];
+    }
+
+    subgraph cluster_core {
+        label="编排核心 Orchestration Core (graph/)";
+        style="rounded,filled"; color="#FCE8E6"; fontsize=13;
+        TAG [label="TradingAgentsGraph\n主编排器", fillcolor="#F6AEA9"];
+        SETUP [label="GraphSetup\n组装节点/边", fillcolor="#F8C7C3"];
+        COND [label="ConditionalLogic\n辩论轮数路由", fillcolor="#F8C7C3"];
+        PROP [label="Propagator\n初始 State", fillcolor="#F8C7C3"];
+        REFL [label="Reflector\n复盘学习", fillcolor="#F8C7C3"];
+        SIG [label="SignalProcessor\n抽取 BUY/SELL/HOLD", fillcolor="#F8C7C3"];
+    }
+
+    STATE [label="共享状态 AgentState\n(MessagesState + 4份报告\n+ investment_debate_state\n+ risk_debate_state)", fillcolor="#FEEFC3", shape=note];
+
+    subgraph cluster_agents {
+        label="智能体层 Agent Teams (agents/)";
+        style="rounded,filled"; color="#E6F4EA"; fontsize=13;
+        AN [label="① 分析师团队\nMarket / Social / News / Fundamentals", fillcolor="#A8DAB5"];
+        RE [label="② 研究团队\nBull <-> Bear + Research Manager", fillcolor="#A8DAB5"];
+        TR [label="③ Trader 交易员", fillcolor="#A8DAB5"];
+        RK [label="④ 风险团队\nAggressive <-> Conservative <-> Neutral", fillcolor="#A8DAB5"];
+        PM [label="⑤ Portfolio Manager 组合经理", fillcolor="#A8DAB5"];
+    }
+
+    subgraph cluster_tools {
+        label="工具层 Tools (agents/utils/)";
+        style="rounded,filled"; color="#FEF7E0"; fontsize=13;
+        TOOLS [label="get_stock_data / get_indicators\nget_fundamentals / balance / cashflow / income\nget_news / get_global_news / get_insider_transactions", fillcolor="#FDE293"];
+    }
+
+    subgraph cluster_data {
+        label="数据层 Dataflows (dataflows/)";
+        style="rounded,filled"; color="#E8EAED"; fontsize=13;
+        ROUTER [label="interface.py\nroute_to_vendor\n(供应商路由 + 故障回退)", fillcolor="#DADCE0"];
+        YF [label="yfinance", fillcolor="#F1F3F4"];
+        AV [label="alpha_vantage", fillcolor="#F1F3F4"];
+        CACHE [label="data_cache/\n(CSV 缓存)", fillcolor="#F1F3F4", shape=cylinder];
+    }
+
+    subgraph cluster_llm {
+        label="LLM 客户端层 (llm_clients/)";
+        style="rounded,filled"; color="#F3E8FD"; fontsize=13;
+        FACTORY [label="factory.create_llm_client", fillcolor="#D7AEFB"];
+        PROV [label="OpenAI / Anthropic / Google\nBedrock / xAI / Ollama / OpenRouter", fillcolor="#E9D2FD"];
+        MODELS [label="quick_thinking_llm (快思考)\ndeep_thinking_llm (深思考)", fillcolor="#E9D2FD"];
+    }
+
+    subgraph cluster_mem {
+        label="记忆层 (memory.py)";
+        style="rounded,filled"; color="#E4F7FB"; fontsize=13;
+        MEM [label="FinancialSituationMemory\n(BM25 检索, 离线)\nbull / bear / trader / invest_judge / portfolio_manager", fillcolor="#A1E4EF"];
+    }
+
+    subgraph cluster_out {
+        label="输出层";
+        style="rounded,filled"; color="#FCE8E6"; fontsize=13;
+        OUT [label="reports/ (分段 markdown)\nresults/ (日志)\neval_results/ (状态 JSON)", fillcolor="#F8C7C3", shape=folder];
+    }
+
+    CFG [label="default_config.py\n(provider/模型/辩论轮数/vendor)", fillcolor="#FEEFC3", shape=component];
+
+    CLI -> TAG;
+    MAIN -> TAG;
+    TAG -> SETUP; TAG -> COND; TAG -> PROP; TAG -> REFL; TAG -> SIG;
+    SETUP -> AN;
+    AN -> STATE [dir=both, style=dashed];
+    RE -> STATE [dir=both, style=dashed];
+    RK -> STATE [dir=both, style=dashed];
+    AN -> TOOLS;
+    TOOLS -> ROUTER;
+    ROUTER -> YF; ROUTER -> AV;
+    YF -> CACHE;
+    AN -> FACTORY [style=dotted];
+    FACTORY -> PROV -> MODELS;
+    RE -> MEM [dir=both, style=dashed];
+    TR -> MEM [dir=both, style=dashed];
+    PM -> MEM [dir=both, style=dashed];
+    REFL -> MEM;
+    SIG -> OUT;
+    AN -> OUT [style=dotted];
+    CFG -> TAG [label="配置", style=dashed];
+
+    AN -> RE -> TR -> RK -> PM [color="#1A73E8", penwidth=2];
+}
