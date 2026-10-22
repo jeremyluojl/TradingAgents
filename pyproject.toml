@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tradingagents = "cli.main:app"
+tradingagents = "cli.main:main"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]

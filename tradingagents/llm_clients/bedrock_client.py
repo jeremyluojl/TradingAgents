@@ -7,6 +7,8 @@ _PASSTHROUGH_KWARGS = (
     "callbacks", "region_name", "credentials_profile_name", "max_tokens",
 )
 
+_DEFAULT_READ_TIMEOUT = 300  # seconds; Bedrock can be slow for long outputs
+
 
 class BedrockClient(BaseLLMClient):
     """Client for Amazon Bedrock models via ChatBedrockConverse.
@@ -31,8 +33,28 @@ class BedrockClient(BaseLLMClient):
                 "Install it with: pip install langchain-aws"
             ) from e
 
+        try:
+            import boto3
+            from botocore.config import Config as BotocoreConfig
+        except ImportError as e:
+            raise ImportError(
+                "boto3 is required for Amazon Bedrock support. "
+                "Install it with: pip install boto3"
+            ) from e
+
         self.warn_if_unknown_model()
-        llm_kwargs = {"model_id": self.model}
+
+        read_timeout = self.kwargs.get("read_timeout", _DEFAULT_READ_TIMEOUT)
+        boto_config = BotocoreConfig(read_timeout=read_timeout)
+        region = self.kwargs.get("region_name")
+        session = boto3.Session(profile_name=self.kwargs.get("credentials_profile_name"))
+        bedrock_client = session.client(
+            "bedrock-runtime",
+            region_name=region,
+            config=boto_config,
+        )
+
+        llm_kwargs = {"model_id": self.model, "client": bedrock_client}
 
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs:

@@ -1,8 +1,14 @@
 from typing import Optional
 import datetime
+import sys
 import typer
 from pathlib import Path
 from functools import wraps
+
+# Ensure the project root is on sys.path when run as an installed script
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 from rich.console import Console
 from dotenv import load_dotenv
 
@@ -459,7 +465,10 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
 
 
-def get_user_selections():
+def get_user_selections(
+    ticker=None, date=None, provider=None, quick_model=None,
+    deep_model=None, analysts=None, depth=None, language=None, region=None,
+):
     """Get all user selections before starting the analysis display."""
     # Display ASCII art welcome message
     with open(Path(__file__).parent / "static" / "welcome.txt", "r") as f:
@@ -499,70 +508,118 @@ def get_user_selections():
         return Panel(box_content, border_style="blue", padding=(1, 2))
 
     # Step 1: Ticker symbol
-    console.print(
-        create_question_box(
-            "Step 1: Ticker Symbol",
-            "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
-            "SPY",
+    if ticker:
+        selected_ticker = ticker.strip().upper()
+        console.print(f"[green]Ticker:[/green] {selected_ticker}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 1: Ticker Symbol",
+                "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
+                "SPY",
+            )
         )
-    )
-    selected_ticker = get_ticker()
+        selected_ticker = get_ticker()
 
     # Step 2: Analysis date
-    default_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    console.print(
-        create_question_box(
-            "Step 2: Analysis Date",
-            "Enter the analysis date (YYYY-MM-DD)",
-            default_date,
-        )
-    )
-    analysis_date = get_analysis_date()
+    if date:
+        analysis_date = date.strip()
+        console.print(f"[green]Date:[/green] {analysis_date}")
+    else:
+        analysis_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        console.print(f"[green]Date:[/green] {analysis_date} (today)")
 
     # Step 3: Output language
-    console.print(
-        create_question_box(
-            "Step 3: Output Language",
-            "Select the language for analyst reports and final decision"
+    if language:
+        output_language = language
+        console.print(f"[green]Language:[/green] {output_language}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 3: Output Language",
+                "Select the language for analyst reports and final decision"
+            )
         )
-    )
-    output_language = ask_output_language()
+        output_language = ask_output_language()
 
     # Step 4: Select analysts
-    console.print(
-        create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+    if analysts:
+        valid_keys = {"market", "social", "news", "fundamentals"}
+        analyst_map = {
+            "market": AnalystType.MARKET,
+            "social": AnalystType.SOCIAL,
+            "news": AnalystType.NEWS,
+            "fundamentals": AnalystType.FUNDAMENTALS,
+        }
+        keys = [k.strip().lower() for k in analysts.split(",")]
+        selected_analysts = [analyst_map[k] for k in keys if k in valid_keys]
+        if not selected_analysts:
+            console.print("[red]No valid analysts specified. Use: market,social,news,fundamentals[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]Analysts:[/green] {', '.join(a.value for a in selected_analysts)}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            )
         )
-    )
-    selected_analysts = select_analysts()
-    console.print(
-        f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
-    )
+        selected_analysts = select_analysts()
+        console.print(
+            f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
+        )
 
     # Step 5: Research depth
-    console.print(
-        create_question_box(
-            "Step 5: Research Depth", "Select your research depth level"
+    if depth is not None:
+        selected_research_depth = depth
+        console.print(f"[green]Research depth:[/green] {depth}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 5: Research Depth", "Select your research depth level"
+            )
         )
-    )
-    selected_research_depth = select_research_depth()
+        selected_research_depth = select_research_depth()
 
     # Step 6: LLM Provider
-    console.print(
-        create_question_box(
-            "Step 6: LLM Provider", "Select your LLM provider"
+    if provider:
+        provider_lower = provider.strip().lower()
+        backend_url_map = {
+            "openai": "https://api.openai.com/v1",
+            "google": "https://generativelanguage.googleapis.com/v1",
+            "anthropic": "https://api.anthropic.com/",
+            "xai": "https://api.x.ai/v1",
+            "openrouter": "https://openrouter.ai/api/v1",
+            "ollama": "http://localhost:11434/v1",
+            "bedrock": "",
+        }
+        if provider_lower not in backend_url_map:
+            console.print(f"[red]Unknown provider '{provider}'. Use: openai, anthropic, google, xai, bedrock, openrouter, ollama[/red]")
+            raise typer.Exit(1)
+        selected_llm_provider = provider_lower
+        backend_url = backend_url_map[provider_lower]
+        console.print(f"[green]Provider:[/green] {selected_llm_provider}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 6: LLM Provider", "Select your LLM provider"
+            )
         )
-    )
-    selected_llm_provider, backend_url = select_llm_provider()
+        selected_llm_provider, backend_url = select_llm_provider()
 
     # Step 7: Thinking agents
-    console.print(
-        create_question_box(
-            "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+    if quick_model and deep_model:
+        selected_shallow_thinker = quick_model
+        selected_deep_thinker = deep_model
+        console.print(f"[green]Quick model:[/green] {quick_model}")
+        console.print(f"[green]Deep model:[/green] {deep_model}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+            )
         )
-    )
-    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-    selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+        selected_shallow_thinker = quick_model or select_shallow_thinking_agent(selected_llm_provider)
+        selected_deep_thinker = deep_model or select_deep_thinking_agent(selected_llm_provider)
 
     # Step 8: Provider-specific thinking configuration
     thinking_level = None
@@ -596,13 +653,17 @@ def get_user_selections():
         )
         anthropic_effort = ask_anthropic_effort()
     elif provider_lower == "bedrock":
-        console.print(
-            create_question_box(
-                "Step 8: AWS Region",
-                "Select the AWS region for Bedrock API calls"
+        if region:
+            bedrock_region = region
+            console.print(f"[green]AWS region:[/green] {bedrock_region}")
+        else:
+            console.print(
+                create_question_box(
+                    "Step 8: AWS Region",
+                    "Select the AWS region for Bedrock API calls"
+                )
             )
-        )
-        bedrock_region = ask_bedrock_region()
+            bedrock_region = ask_bedrock_region()
 
     return {
         "ticker": selected_ticker,
@@ -935,9 +996,16 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def run_analysis():
-    # First get all user selections
-    selections = get_user_selections()
+def run_analysis(
+    ticker=None, date=None, provider=None, quick_model=None,
+    deep_model=None, analysts=None, depth=None, language=None, region=None,
+):
+    # First get all user selections (CLI flags skip interactive prompts when provided)
+    selections = get_user_selections(
+        ticker=ticker, date=date, provider=provider, quick_model=quick_model,
+        deep_model=deep_model, analysts=analysts, depth=depth, language=language,
+        region=region,
+    )
 
     # Create config with selected research depth
     config = DEFAULT_CONFIG.copy()
@@ -1212,9 +1280,25 @@ def run_analysis():
 
 
 @app.command()
-def analyze():
-    run_analysis()
+def analyze(
+    ticker: Optional[str] = typer.Option(None, "--ticker", "-t", help="Ticker symbol (e.g. SPY, AAPL)"),
+    date: Optional[str] = typer.Option(None, "--date", "-d", help="Analysis date YYYY-MM-DD (default: today)"),
+    provider: Optional[str] = typer.Option("bedrock", "--provider", "-p", help="LLM provider: openai, anthropic, google, xai, bedrock, openrouter, ollama"),
+    quick_model: Optional[str] = typer.Option("global.anthropic.claude-opus-5-5", "--quick-model", "-q", help="Quick-thinking model ID"),
+    deep_model: Optional[str] = typer.Option("global.anthropic.claude-sonnet-5-5", "--deep-model", "-D", help="Deep-thinking model ID"),
+    analysts: Optional[str] = typer.Option("market,social,news,fundamentals", "--analysts", "-a", help="Comma-separated analysts: market,social,news,fundamentals"),
+    depth: Optional[int] = typer.Option(3, "--depth", help="Research depth: 1=shallow, 3=medium, 5=deep"),
+    language: Optional[str] = typer.Option("Chinese", "--language", "-l", help="Output language (e.g. English, Chinese)"),
+    region: Optional[str] = typer.Option("us-east-1", "--region", "-r", help="AWS region for Bedrock (e.g. us-east-1)"),
+):
+    run_analysis(ticker=ticker, date=date, provider=provider, quick_model=quick_model,
+                 deep_model=deep_model, analysts=analysts, depth=depth, language=language,
+                 region=region)
+
+
+def main():
+    typer.run(analyze)
 
 
 if __name__ == "__main__":
-    app()
+    main()
